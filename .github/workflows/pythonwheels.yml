@@ -1,0 +1,97 @@
+name: Create Platform Wheels
+
+on: [push]
+
+env:
+ MACOSX_DEPLOYMENT_TARGET: 10.9
+
+jobs:
+  manylinux-x86_64-wheel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8]
+        include:
+          # Set the appropriate min numpy for each python version
+          # Should ideally let pyproject.toml take care of this
+          - python-version: 3.6
+            min-numpy: 1.13.3
+          - python-version: 3.7
+            min-numpy: 1.14.5
+          - python-version: 3.8
+            min-numpy: 1.16.0        
+    steps:
+    - name: Checkout pandas
+      uses: actions/checkout@master
+      with:
+        repository: pandas-dev/pandas
+    - name: Checkout release repo for build script
+      uses: actions/checkout@master
+      with:
+        path: "pandas-release"
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Docker Build
+      run: |
+        docker run --rm -e PLAT=manylinux2010_x86_64 -e PYVER=${{ matrix.python-version }} -e NPVER=${{ matrix.min-numpy }} -v `pwd`:/io quay.io/pypa/manylinux2010_x86_64 /io/pandas-release/manylinux_build.sh
+    - name: Install and verify wheel
+      run: |
+        python -m pip install numpy pytz python-dateutil
+        # cd to not install the local unbuilt pandas directory
+        mkdir temp
+        cd temp
+        python -m pip install pandas --no-index -f ../wheelhouse
+        python -c "import pandas"
+        cd ..
+    - name: Upload linux wheel artifact
+      uses: actions/upload-artifact@v1
+      with:
+        name: wheels
+        path: wheelhouse
+
+  non-linux-wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+        python-version: [3.6, 3.7, 3.8]
+        include:
+          # Set the appropriate min numpy for each python version
+          # Should ideally let pyproject.toml take care of this
+          - python-version: 3.6
+            min-numpy: 1.13.3
+          - python-version: 3.7
+            min-numpy: 1.14.5
+          - python-version: 3.8
+            min-numpy: 1.16.0
+    steps:
+    - name: Checkout pandas
+      uses: actions/checkout@master
+      with:
+        repository: pandas-dev/pandas
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install setuptools wheel cython numpy==${{ matrix.min-numpy }}
+    - name: Build wheels
+      run: |
+        python setup.py bdist_wheel
+    - name: Install and verify wheel
+      run: |
+        python -m pip install pytz python-dateutil
+        # cd to not install the local unbuilt pandas directory
+        mkdir temp
+        cd temp
+        python -m pip install pandas --no-index -f ../dist
+        python -c "import pandas"
+        cd ..
+    - name: Upload wheel artifact
+      uses: actions/upload-artifact@v1
+      with:
+        name: wheels
+        path: dist
